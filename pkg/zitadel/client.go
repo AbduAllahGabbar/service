@@ -14,7 +14,7 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sony/gobreaker"
 
-	"github.com/yourorg/authz/pkg/config"
+	"github.com/AbduAllahGabbar/service/pkg/config"
 )
 
 type RoleInput struct {
@@ -87,7 +87,6 @@ func (h *httpClient) makeURL(p string) string {
 	return u.String()
 }
 
-
 func (h *httpClient) doRequest(req *retryablehttp.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+h.token)
 	req.Header.Set("Content-Type", "application/json")
@@ -109,7 +108,6 @@ func (h *httpClient) doRequest(req *retryablehttp.Request) (*http.Response, erro
 	}
 	return nil, fmt.Errorf("unexpected response type from cb")
 }
-
 
 func (h *httpClient) CreateRoles(ctx context.Context, roles []RoleInput) ([]string, error) {
 	type bulkRole struct {
@@ -159,7 +157,7 @@ func (h *httpClient) CreateRoles(ctx context.Context, roles []RoleInput) ([]stri
 	}
 	// return h.ListRoles(ctx)
 
-	return  nil, nil
+	return nil, nil
 
 	//  return nil, fmt.Errorf("create roles bulk: invalid response")
 }
@@ -195,7 +193,6 @@ func (h *httpClient) CreateRoles(ctx context.Context, roles []RoleInput) ([]stri
 // 	}
 // 	return keys, nil
 // }
-
 
 func (h *httpClient) CreateRole(ctx context.Context, name, desc string) (string, error) {
 	keys, err := h.CreateRoles(ctx, []RoleInput{{Name: name, Desc: desc}})
@@ -394,4 +391,3 @@ func (h *httpClient) GetUserRoles(ctx context.Context, userID string) ([]string,
 
 	return roles, nil
 }
-

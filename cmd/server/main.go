@@ -9,11 +9,11 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/yourorg/authz/pkg/cache"
-	"github.com/yourorg/authz/pkg/config"
-	"github.com/yourorg/authz/pkg/service"
-	"github.com/yourorg/authz/pkg/zitadel"
-	"github.com/yourorg/authz/internal/middleware"
+	"github.com/AbduAllahGabbar/service/internal/middleware"
+	"github.com/AbduAllahGabbar/service/pkg/cache"
+	"github.com/AbduAllahGabbar/service/pkg/config"
+	"github.com/AbduAllahGabbar/service/pkg/service"
+	"github.com/AbduAllahGabbar/service/pkg/zitadel"
 )
 
 func main() {
@@ -49,7 +49,7 @@ func main() {
 			c.JSON(500, gin.H{"error": "create_failed", "detail": err.Error()})
 			return
 		}
-		
+
 		c.JSON(201, gin.H{"ok": true})
 	})
 
@@ -149,7 +149,9 @@ func main() {
 	})
 
 	api.POST("/roles/remove/async", func(c *gin.Context) {
-		var req struct{ Role string `json:"role" binding:"required"` }
+		var req struct {
+			Role string `json:"role" binding:"required"`
+		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(400, gin.H{"error": "invalid"})
 			return

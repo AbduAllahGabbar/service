@@ -2,8 +2,9 @@ package middleware
 
 import (
 	"net/http"
+
+	"github.com/AbduAllahGabbar/service/pkg/service"
 	"github.com/gin-gonic/gin"
-	"github.com/yourorg/authz/pkg/service"
 )
 
 const ContextRolesKey = "user_roles"

@@ -8,8 +8,8 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/yourorg/authz/pkg/cache"
-	"github.com/yourorg/authz/pkg/zitadel"
+	"github.com/AbduAllahGabbar/service/pkg/cache"
+	"github.com/AbduAllahGabbar/service/pkg/zitadel"
 )
 
 type Service struct {

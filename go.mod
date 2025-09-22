@@ -1,4 +1,4 @@
-module github.com/yourorg/authz
+module github.com/AbduAllahGabbar/service
 
 go 1.21
 
