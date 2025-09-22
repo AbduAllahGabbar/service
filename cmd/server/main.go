@@ -8,8 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
-
-	"github.com/AbduAllahGabbar/service/internal/middleware"
+	"github.com/AbduAllahGabbar/service/pkg/middleware"
 	"github.com/AbduAllahGabbar/service/pkg/cache"
 	"github.com/AbduAllahGabbar/service/pkg/config"
 	"github.com/AbduAllahGabbar/service/pkg/service"
