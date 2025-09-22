@@ -60,8 +60,8 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		ZitadelBaseURL: getEnv("ZITADEL_BASE_URL", "http://localhost:8080"),
-		ZitadelToken:   os.Getenv("ZITADEL_SERVICE_ACCOUNT_TOKEN"),
+		ZitadelBaseURL: getEnv("ZITADEL_DOMAIN", "http://localhost:8080"),
+		ZitadelToken:   os.Getenv("SERVICE_ACCOUNT_TOKEN"),
 		RedisAddr:      getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:  os.Getenv("REDIS_PASSWORD"),
 		RedisDB:        redisDB,
