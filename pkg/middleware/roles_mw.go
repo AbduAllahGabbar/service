@@ -17,22 +17,16 @@ import (
 const ContextRolesKey = "user_roles"
 const ContextUserIDKey = "user_id"
 
-// RoleMiddleware: يعتمد X-User-ID إن موجود، وإلا يستخدم Authorization Bearer token.
-// لو التوكن opaque (Zitadel access token) ينادي /oidc/v1/userinfo لاستخراج sub.
-// يخزن user_id و user_roles في gin.Context.
+
 func RoleMiddleware(svc *service.Service) gin.HandlerFunc {
-	// read zitadel domain from env once
 	zitadelDomain := strings.TrimRight(os.Getenv("ZITADEL_DOMAIN"), "/")
 	if zitadelDomain == "" {
-		// warning only; requests will fail with clear error later
 		log.Println("warning: ZITADEL_DOMAIN is not set (RoleMiddleware will fail for opaque tokens)")
 	}
 
 	return func(c *gin.Context) {
-		// 1) prefer X-User-ID (convenience for internal calls/tests)
 		userID := strings.TrimSpace(c.GetHeader("X-User-ID"))
 
-		// 2) otherwise use Authorization: Bearer <token>
 		if userID == "" {
 			auth := strings.TrimSpace(c.GetHeader("Authorization"))
 			if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
@@ -42,7 +36,6 @@ func RoleMiddleware(svc *service.Service) gin.HandlerFunc {
 			}
 
 			tokenStr := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-			// call userinfo to resolve sub (works with opaque access tokens)
 			sub, err := fetchUserSub(c.Request.Context(), zitadelDomain, tokenStr)
 			if err != nil || sub == "" {
 				log.Printf("RoleMiddleware: failed to resolve user from token: %v\n", err)
@@ -53,7 +46,6 @@ func RoleMiddleware(svc *service.Service) gin.HandlerFunc {
 			log.Printf("RoleMiddleware: resolved user id %s from token\n", userID)
 		}
 
-		// 3) load roles via service (use request context to propagate cancel/timeouts)
 		roles, err := svc.GetUserRoles(c.Request.Context(), userID)
 		if err != nil {
 			log.Printf("RoleMiddleware: GetUserRoles failed for %s: %v\n", userID, err)
@@ -61,14 +53,12 @@ func RoleMiddleware(svc *service.Service) gin.HandlerFunc {
 			return
 		}
 
-		// 4) store in context for handlers
 		c.Set(ContextUserIDKey, userID)
 		c.Set(ContextRolesKey, roles)
 		c.Next()
 	}
 }
 
-// fetchUserSub calls /oidc/v1/userinfo with a timeout and returns the "sub" field.
 func fetchUserSub(parentCtx context.Context, zitadelDomain, token string) (string, error) {
 	if strings.TrimSpace(zitadelDomain) == "" {
 		return "", fmt.Errorf("zitadel domain not configured (ZITADEL_DOMAIN)")
@@ -104,4 +94,18 @@ func fetchUserSub(parentCtx context.Context, zitadelDomain, token string) (strin
 		return "", fmt.Errorf("sub not present in userinfo response")
 	}
 	return sub, nil
+}
+
+func HasAnyRole(userRoles []string, rolesToCheck ...string) bool {
+	roleSet := make(map[string]struct{}, len(userRoles))
+	for _, r := range userRoles {
+		roleSet[r] = struct{}{}
+	}
+
+	for _, check := range rolesToCheck {
+		if _, ok := roleSet[check]; ok {
+			return true
+		}
+	}
+	return false
 }
