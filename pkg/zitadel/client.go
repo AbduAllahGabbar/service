@@ -208,7 +208,7 @@ func (h *httpClient) CreateRole(ctx context.Context, name, desc string) (string,
 func (h *httpClient) AssignRoleToUser(ctx context.Context, roleID, userID string) error {
 	payload := map[string]interface{}{
 		"projectId":      h.project,
-		"projectGrantId": h.projectGrant,
+		// "projectGrantId": h.projectGrant,
 		"roleKeys":       []string{roleID},
 	}
 	b, _ := json.Marshal(payload)
@@ -236,11 +236,11 @@ func (h *httpClient) AssignRolesToUser(ctx context.Context, userID string, roleI
 	}
 	payload := map[string]interface{}{
 		"projectId":      h.project,
-		"projectGrantId": h.projectGrant,
+		// "projectGrantId": h.projectGrant,
 		"roleKeys":       roleIDs,
 	}
 	b, _ := json.Marshal(payload)
-
+	fmt.Printf("payload: %v",payload)
 	endpoint := fmt.Sprintf("/management/v1/users/%s/grants", userID)
 	req, _ := retryablehttp.NewRequest("POST", h.makeURL(endpoint), strings.NewReader(string(b)))
 	req = req.WithContext(ctx)
@@ -275,7 +275,6 @@ func (h *httpClient) DeleteRole(ctx context.Context, roleID string) error {
 }
 
 func (h *httpClient) RemoveRoleFromUser(ctx context.Context, roleID, userID string) error {
-	// Step 1: ابحث عن الـ grants بتاعة اليوزر
 	searchPayload := map[string]interface{}{
 		"queries": []interface{}{
 			map[string]interface{}{
@@ -300,7 +299,6 @@ func (h *httpClient) RemoveRoleFromUser(ctx context.Context, roleID, userID stri
 		return fmt.Errorf("search grants failed: %d %s", resp.StatusCode, string(body))
 	}
 
-	// Step 2: عدل struct roleKeys تبقى array
 	var out struct {
 		Result []struct {
 			GrantId  string   `json:"grantId"`
@@ -312,7 +310,6 @@ func (h *httpClient) RemoveRoleFromUser(ctx context.Context, roleID, userID stri
 		return fmt.Errorf("failed to decode grants search: %w", err)
 	}
 
-	// Step 3: دور على grant اللي فيه الـ roleID المطلوب
 	var grantToDelete string
 	for _, r := range out.Result {
 		for _, role := range r.RoleKeys {
@@ -331,7 +328,6 @@ func (h *httpClient) RemoveRoleFromUser(ctx context.Context, roleID, userID stri
 		return fmt.Errorf("grant for user %s and role %s not found", userID, roleID)
 	}
 
-	// Step 4: امسح الـ grant
 	delEndpoint := fmt.Sprintf("/management/v1/users/%s/grants/%s", userID, grantToDelete)
 	delReq, _ := retryablehttp.NewRequest("DELETE", h.makeURL(delEndpoint), nil)
 	delReq = delReq.WithContext(ctx)
