@@ -3,7 +3,6 @@ module github.com/AbduAllahGabbar/service
 go 1.21
 
 require (
-	github.com/MicahParks/keyfunc v1.9.0
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/hashicorp/go-retryablehttp v0.7.0
@@ -11,8 +10,6 @@ require (
 	github.com/redis/go-redis/v9 v9.0.0
 	golang.org/x/sync v0.6.0
 )
-
-require github.com/golang-jwt/jwt/v4 v4.5.2
 
 require (
 	github.com/bytedance/sonic v1.11.6 // indirect
