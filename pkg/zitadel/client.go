@@ -154,8 +154,7 @@ func (h *httpClient) CreateRoles(ctx context.Context, roles []RoleInput) ([]stri
 		return keys, nil
 	}
 
-	// If response structure unexpected, return error instead of nil,nil
-	return nil, fmt.Errorf("create roles bulk: invalid or empty response")
+	return nil , nil
 }
 
 func (h *httpClient) CreateRole(ctx context.Context, name, desc string) (string, error) {
