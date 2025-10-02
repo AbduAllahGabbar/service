@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
-	"github.com/AbduAllahGabbar/service/pkg/middleware"
+
 	"github.com/AbduAllahGabbar/service/pkg/cache"
 	"github.com/AbduAllahGabbar/service/pkg/config"
+	"github.com/AbduAllahGabbar/service/pkg/middleware"
 	"github.com/AbduAllahGabbar/service/pkg/service"
 	"github.com/AbduAllahGabbar/service/pkg/zitadel"
 )
@@ -24,19 +29,27 @@ func main() {
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
 	})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		log.Fatalf("redis ping failed: %v", err)
 	}
 
+	// ensure redis closed on exit
+	defer func() { _ = rdb.Close() }()
+
 	cacheImpl := cache.NewRedisCache(rdb, cfg.CacheTTL)
 	zitadelClient := zitadel.NewHTTPClient(cfg.ZitadelBaseURL, cfg.ZitadelToken, cfg)
 	svc := service.New(zitadelClient, cacheImpl, cfg.CacheTTL)
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Logger())
+	r.Use(gin.Recovery())
+
 	api := r.Group("/v1")
 
+	// handlers (kept same as before) -------------------------------------------------
 	api.POST("/roles/batch", func(c *gin.Context) {
 		var req []zitadel.RoleInput
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -45,10 +58,10 @@ func main() {
 		}
 		_, err := svc.CreateRoles(c.Request.Context(), req)
 		if err != nil {
-			c.JSON(500, gin.H{"error": "create_failed", "detail": err.Error()})
+			log.Printf("CreateRoles failed: %v", err)
+			c.JSON(500, gin.H{"error": "create_failed"})
 			return
 		}
-
 		c.JSON(201, gin.H{"ok": true})
 	})
 
@@ -62,7 +75,8 @@ func main() {
 			return
 		}
 		if err := svc.AssignRolesToUser(c.Request.Context(), req.UserID, req.RoleIDs); err != nil {
-			c.JSON(500, gin.H{"error": "assign_failed", "detail": err.Error()})
+			log.Printf("AssignRolesToUser failed: %v", err)
+			c.JSON(500, gin.H{"error": "assign_failed"})
 			return
 		}
 		c.JSON(200, gin.H{"ok": true})
@@ -75,7 +89,8 @@ func main() {
 			return
 		}
 		if err := svc.DeleteRole(c.Request.Context(), role); err != nil {
-			c.JSON(500, gin.H{"error": "delete_failed", "detail": err.Error()})
+			log.Printf("DeleteRole failed: %v", err)
+			c.JSON(500, gin.H{"error": "delete_failed"})
 			return
 		}
 		c.JSON(200, gin.H{"ok": true})
@@ -89,7 +104,8 @@ func main() {
 			return
 		}
 		if err := svc.RemoveRoleFromUser(c.Request.Context(), role, user); err != nil {
-			c.JSON(500, gin.H{"error": "remove_failed", "detail": err.Error()})
+			log.Printf("RemoveRoleFromUser failed: %v", err)
+			c.JSON(500, gin.H{"error": "remove_failed"})
 			return
 		}
 		c.JSON(200, gin.H{"ok": true})
@@ -101,12 +117,13 @@ func main() {
 			Desc string `json:"desc"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": "invalid", "detail": err.Error()})
+			c.JSON(400, gin.H{"error": "invalid"})
 			return
 		}
 		id, err := svc.CreateRole(c.Request.Context(), req.Name, req.Desc)
 		if err != nil {
-			c.JSON(500, gin.H{"error": "create_failed", "detail": err.Error()})
+			log.Printf("CreateRole failed: %v", err)
+			c.JSON(500, gin.H{"error": "create_failed"})
 			return
 		}
 		c.JSON(201, gin.H{"role_id": id})
@@ -122,7 +139,8 @@ func main() {
 			return
 		}
 		if err := svc.AssignRole(c.Request.Context(), req.RoleID, req.UserID); err != nil {
-			c.JSON(500, gin.H{"error": "assign_failed", "detail": err.Error()})
+			log.Printf("AssignRole failed: %v", err)
+			c.JSON(500, gin.H{"error": "assign_failed"})
 			return
 		}
 		c.JSON(200, gin.H{"ok": true})
@@ -157,7 +175,8 @@ func main() {
 		}
 		jobID, err := svc.StartRemoveRoleCleanup(c.Request.Context(), req.Role)
 		if err != nil {
-			c.JSON(500, gin.H{"error": "start_failed", "detail": err.Error()})
+			log.Printf("StartRemoveRoleCleanup failed: %v", err)
+			c.JSON(500, gin.H{"error": "start_failed"})
 			return
 		}
 		c.JSON(202, gin.H{"job_id": jobID})
@@ -171,7 +190,7 @@ func main() {
 		}
 		status, err := svc.GetCleanupJobStatus(c.Request.Context(), jobID)
 		if err != nil {
-			c.JSON(404, gin.H{"error": "not_found", "detail": err.Error()})
+			c.JSON(404, gin.H{"error": "not_found"})
 			return
 		}
 		c.JSON(200, status)
@@ -181,9 +200,43 @@ func main() {
 		rolesI, _ := c.Get(middleware.ContextRolesKey)
 		c.JSON(200, gin.H{"user": c.GetHeader("X-User-ID"), "roles": rolesI})
 	})
+	// -----------------------------------------------------------------------------
 
-	log.Printf("starting on :%s", cfg.Port)
-	if err := r.Run(":" + cfg.Port); err != nil {
-		log.Fatal(err)
+	// health endpoint
+	r.GET("/healthz", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			c.JSON(503, gin.H{"ok": false})
+			return
+		}
+		c.JSON(200, gin.H{"ok": true})
+	})
+
+	srv := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 20 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	go func() {
+		log.Printf("starting on :%s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server failed: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("shutting down server...")
+
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelShutdown()
+	if err := srv.Shutdown(ctxShutdown); err != nil {
+		log.Fatalf("server forced to shutdown: %v", err)
+	}
+	log.Println("server exited cleanly")
 }

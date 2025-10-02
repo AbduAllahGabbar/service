@@ -33,12 +33,11 @@ type Client interface {
 }
 
 type httpClient struct {
-	base         *url.URL
-	cli          *retryablehttp.Client
-	token        string
-	cb           *gobreaker.CircuitBreaker
-	project      string
-	projectGrant string
+	base    *url.URL
+	cli     *retryablehttp.Client
+	token   string
+	cb      *gobreaker.CircuitBreaker
+	project string
 }
 
 func NewHTTPClient(baseURL, token string, cfg *config.Config) Client {
@@ -69,12 +68,11 @@ func NewHTTPClient(baseURL, token string, cfg *config.Config) Client {
 	cb := gobreaker.NewCircuitBreaker(settings)
 
 	return &httpClient{
-		base:         u,
-		cli:          cli,
-		token:        token,
-		cb:           cb,
-		project:      cfg.ProjectID,
-		projectGrant: cfg.ProjectGrantID,
+		base:    u,
+		cli:     cli,
+		token:   token,
+		cb:      cb,
+		project: cfg.ProjectID,
 	}
 }
 
@@ -88,7 +86,7 @@ func (h *httpClient) makeURL(p string) string {
 }
 
 func (h *httpClient) doRequest(req *retryablehttp.Request) (*http.Response, error) {
-	req.Header.Set("Authorization", "Bearer "+h.token)
+	req.Header.Set("Authorization", "Bearer " + h.token)
 	req.Header.Set("Content-Type", "application/json")
 
 	res, err := h.cb.Execute(func() (interface{}, error) {
@@ -155,44 +153,10 @@ func (h *httpClient) CreateRoles(ctx context.Context, roles []RoleInput) ([]stri
 		}
 		return keys, nil
 	}
-	// return h.ListRoles(ctx)
 
-	return nil, nil
-
-	//  return nil, fmt.Errorf("create roles bulk: invalid response")
+	// If response structure unexpected, return error instead of nil,nil
+	return nil, fmt.Errorf("create roles bulk: invalid or empty response")
 }
-
-// func (h *httpClient) ListRoles(ctx context.Context) ([]string, error) {
-// 	endpoint := fmt.Sprintf("/management/v1/projects/%s/roles", h.project)
-// 	req, _ := retryablehttp.NewRequest("GET", h.makeURL(endpoint), nil)
-// 	req = req.WithContext(ctx)
-
-// 	resp, err := h.doRequest(req)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
-
-// 	if resp.StatusCode >= 300 {
-// 		body, _ := io.ReadAll(resp.Body)
-// 		return nil, fmt.Errorf("list roles failed: %d %s", resp.StatusCode, string(body))
-// 	}
-
-// 	var out struct {
-// 		Result []struct {
-// 			Key string `json:"key"`
-// 		} `json:"result"`
-// 	}
-// 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-// 		return nil, err
-// 	}
-
-// 	keys := make([]string, 0, len(out.Result))
-// 	for _, r := range out.Result {
-// 		keys = append(keys, r.Key)
-// 	}
-// 	return keys, nil
-// }
 
 func (h *httpClient) CreateRole(ctx context.Context, name, desc string) (string, error) {
 	keys, err := h.CreateRoles(ctx, []RoleInput{{Name: name, Desc: desc}})
@@ -202,14 +166,13 @@ func (h *httpClient) CreateRole(ctx context.Context, name, desc string) (string,
 	if len(keys) > 0 {
 		return keys[0], nil
 	}
-	return "", nil
+	return "", fmt.Errorf("create role: empty response")
 }
 
 func (h *httpClient) AssignRoleToUser(ctx context.Context, roleID, userID string) error {
 	payload := map[string]interface{}{
-		"projectId":      h.project,
-		// "projectGrantId": h.projectGrant,
-		"roleKeys":       []string{roleID},
+		"projectId": h.project,
+		"roleKeys":  []string{roleID},
 	}
 	b, _ := json.Marshal(payload)
 
@@ -235,12 +198,10 @@ func (h *httpClient) AssignRolesToUser(ctx context.Context, userID string, roleI
 		return nil
 	}
 	payload := map[string]interface{}{
-		"projectId":      h.project,
-		// "projectGrantId": h.projectGrant,
-		"roleKeys":       roleIDs,
+		"projectId": h.project,
+		"roleKeys":  roleIDs,
 	}
 	b, _ := json.Marshal(payload)
-	fmt.Printf("payload: %v",payload)
 	endpoint := fmt.Sprintf("/management/v1/users/%s/grants", userID)
 	req, _ := retryablehttp.NewRequest("POST", h.makeURL(endpoint), strings.NewReader(string(b)))
 	req = req.WithContext(ctx)

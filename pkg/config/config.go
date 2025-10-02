@@ -24,7 +24,6 @@ type Config struct {
 	CBMaxRequests  uint32
 
 	ProjectID      string
-	ProjectGrantID string
 }
 
 func LoadConfig() *Config {
@@ -73,7 +72,6 @@ func LoadConfig() *Config {
 		CBTimeout:      cbTimeout,
 		CBMaxRequests:  5,
 		ProjectID:      os.Getenv("PROJECT_ID"),
-		ProjectGrantID: os.Getenv("PROJECT_GRANT_ID"),
 	}
 }
 

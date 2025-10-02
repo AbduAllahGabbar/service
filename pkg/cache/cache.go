@@ -79,49 +79,77 @@ func (c *redisCache) InvalidateRoles(ctx context.Context, userID string) error {
 func (c *redisCache) RemoveRoleFromAllCaches(ctx context.Context, role string) (int, error) {
 	var cursor uint64
 	updated := 0
+	batchSize := int64(100)
 	for {
-		keys, cur, err := c.rdb.Scan(ctx, cursor, "roles:*", 100).Result()
+		keys, cur, err := c.rdb.Scan(ctx, cursor, "roles:*", batchSize).Result()
 		if err != nil {
 			return updated, err
 		}
 		cursor = cur
-		for _, k := range keys {
-			b, err := c.rdb.Get(ctx, k).Bytes()
-			if err == redis.Nil {
+
+		if len(keys) == 0 {
+			if cursor == 0 {
+				break
+			}
+			continue
+		}
+
+		vals, err := c.rdb.MGet(ctx, keys...).Result()
+		if err != nil {
+			return updated, err
+		}
+
+		pipe := c.rdb.Pipeline()
+		for i, raw := range vals {
+			if raw == nil {
 				continue
 			}
-			if err != nil {
-				return updated, err
+			b, ok := raw.(string)
+			if !ok {
+				continue
 			}
 			var v rolesValue
-			if err := json.Unmarshal(b, &v); err != nil {
+			if err := json.Unmarshal([]byte(b), &v); err != nil {
 				continue
 			}
-			origLen := len(v.Roles)
-			newRoles := make([]string, 0, origLen)
+			newRoles := v.Roles[:0]
+			removed := false
 			for _, r := range v.Roles {
 				if r == role {
+					removed = true
 					continue
 				}
 				newRoles = append(newRoles, r)
 			}
-			if len(newRoles) == origLen {
+			if !removed {
 				continue
 			}
 			v.Roles = newRoles
 			nb, _ := json.Marshal(v)
-			ttl, err := c.rdb.TTL(ctx, k).Result()
-			var setTTL time.Duration
-			if err == nil && ttl > 0 {
-				setTTL = ttl
+
+			ttl, err := c.rdb.TTL(ctx, keys[i]).Result()
+			var expiration time.Duration
+			if err == nil {
+				if ttl < 0 {
+					// ttl == -1 => no expiration; keep no expiry
+					expiration = 0
+				} else {
+					expiration = ttl
+				}
 			} else {
-				setTTL = c.defaultTTL
+				expiration = c.defaultTTL
 			}
-			if err := c.rdb.Set(ctx, k, nb, setTTL).Err(); err != nil {
-				return updated, err
+			if expiration > 0 {
+				pipe.Set(ctx, keys[i], nb, expiration)
+			} else {
+				pipe.Set(ctx, keys[i], nb, 0)
 			}
 			updated++
 		}
+		if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+			return updated, err
+		}
+
 		if cursor == 0 {
 			break
 		}
@@ -151,8 +179,9 @@ func (c *redisCache) runRemoveRoleJob(ctx context.Context, jobID, role string) e
 	status := CleanupJobStatus{JobID: jobID, Role: role, Processed: 0, Updated: 0, Status: "running", StartedAt: time.Now()}
 	_ = update(status)
 	var cursor uint64
+	batchSize := int64(100)
 	for {
-		keys, cur, err := c.rdb.Scan(ctx, cursor, "roles:*", 100).Result()
+		keys, cur, err := c.rdb.Scan(ctx, cursor, "roles:*", batchSize).Result()
 		if err != nil {
 			status.Status = "failed"
 			status.Error = err.Error()
@@ -161,27 +190,38 @@ func (c *redisCache) runRemoveRoleJob(ctx context.Context, jobID, role string) e
 			return err
 		}
 		cursor = cur
-		for _, k := range keys {
+		if len(keys) == 0 && cursor == 0 {
+			break
+		}
+
+		vals, err := c.rdb.MGet(ctx, keys...).Result()
+		if err != nil {
+			status.Status = "failed"
+			status.Error = err.Error()
+			status.FinishedAt = time.Now()
+			_ = update(status)
+			return err
+		}
+
+		pipe := c.rdb.Pipeline()
+		for i, raw := range vals {
 			status.Processed++
-			b, err := c.rdb.Get(ctx, k).Bytes()
-			if err == redis.Nil {
-				_ = update(status)
+			if raw == nil {
+				if status.Processed%50 == 0 {
+					_ = update(status)
+				}
 				continue
 			}
-			if err != nil {
-				status.Status = "failed"
-				status.Error = err.Error()
-				status.FinishedAt = time.Now()
-				_ = update(status)
-				return err
+			b, ok := raw.(string)
+			if !ok {
+				continue
 			}
 			var v rolesValue
-			if err := json.Unmarshal(b, &v); err != nil {
-				_ = update(status)
+			if err := json.Unmarshal([]byte(b), &v); err != nil {
 				continue
 			}
-			origLen := len(v.Roles)
-			newRoles := make([]string, 0, origLen)
+			
+			newRoles := v.Roles[:0]
 			removed := false
 			for _, r := range v.Roles {
 				if r == role {
@@ -193,25 +233,34 @@ func (c *redisCache) runRemoveRoleJob(ctx context.Context, jobID, role string) e
 			if removed {
 				v.Roles = newRoles
 				nb, _ := json.Marshal(v)
-				ttl, err := c.rdb.TTL(ctx, k).Result()
+				ttl, err := c.rdb.TTL(ctx, keys[i]).Result()
 				var setTTL time.Duration
-				if err == nil && ttl > 0 {
-					setTTL = ttl
+				if err == nil {
+					if ttl < 0 {
+						setTTL = 0
+					} else {
+						setTTL = ttl
+					}
 				} else {
 					setTTL = c.defaultTTL
 				}
-				if err := c.rdb.Set(ctx, k, nb, setTTL).Err(); err != nil {
-					status.Status = "failed"
-					status.Error = err.Error()
-					status.FinishedAt = time.Now()
-					_ = update(status)
-					return err
+				if setTTL > 0 {
+					pipe.Set(ctx, keys[i], nb, setTTL)
+				} else {
+					pipe.Set(ctx, keys[i], nb, 0)
 				}
 				status.Updated++
 			}
 			if status.Processed%50 == 0 {
 				_ = update(status)
 			}
+		}
+		if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+			status.Status = "failed"
+			status.Error = err.Error()
+			status.FinishedAt = time.Now()
+			_ = update(status)
+			return err
 		}
 		_ = update(status)
 		if cursor == 0 {
